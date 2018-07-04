@@ -1,6 +1,7 @@
 """Program automatycznie pobiera dane z GSC i zapisuje je w pliku xlsx"""
 
 import datetime
+import json
 import sys
 import time
 
@@ -13,7 +14,6 @@ from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.common.exceptions import NoSuchElementException
 
-import config
 
 sys.stderr = open("errorlog.txt", "w")
 
@@ -85,14 +85,22 @@ def external_links(SHEET, ROW_COUNTER):
     """pobieranie liczby backlinków"""
     DRIVER.get("https://www.google.com/webmasters/tools/external-links?hl=pl&siteUrl="+url)
     time.sleep(2)
-    backlinks = DRIVER.find_element_by_xpath(
-        "//div[@id='backlinks-dashboard']/div/div/table/tbody/tr[2]/td/div").text
     print("#####Linki do Twojej witryny#####")
-    print("Liczba linków: "+backlinks)
-    if "Brak danych" in backlinks:
-        SHEET["B"+str(ROW_COUNTER)] = backlinks
-    else:
-        SHEET["B"+str(ROW_COUNTER)] = int(backlinks.replace(" ", ""))
+    try:
+        backlinks = DRIVER.find_element_by_xpath(
+            "//div[@id='backlinks-dashboard']/div/div/table/tbody/tr[2]/td/div").text
+        print("Liczba linków: "+backlinks)
+        if "Brak danych" in backlinks:
+            SHEET["B"+str(ROW_COUNTER)] = "Brak danych"
+        else:
+            SHEET["B"+str(ROW_COUNTER)] = int(backlinks.replace(" ", ""))
+    except NoSuchElementException:
+        backlinks = DRIVER.find_element_by_class_name("empty-mini").text
+        if "Brak danych" in backlinks:
+            print("brak danych")
+            SHEET["B"+str(ROW_COUNTER)] = "Brak danych"
+        else:
+            print("Błąd backlinki")
 
 
 def structured_data(SHEET, ROW_COUNTER):
@@ -111,6 +119,8 @@ def structured_data(SHEET, ROW_COUNTER):
                 else:
                     SHEET["K"+str(ROW_COUNTER)] = int(struct_data.replace(" ", ""))
             except TypeError:
+                SHEET["K"+str(ROW_COUNTER)] = int(struct_data.replace(" ", ""))
+            except ValueError:
                 SHEET["K"+str(ROW_COUNTER)] = int(struct_data.replace(" ", ""))
         else:
             SHEET["K"+str(ROW_COUNTER)] = int(struct_data.replace(" ", ""))
@@ -186,6 +196,8 @@ def index_status(SHEET, ROW_COUNTER):
                 SHEET["E"+str(ROW_COUNTER)] = int(index.replace(" ", ""))
         except TypeError:
             SHEET["E"+str(ROW_COUNTER)] = int(index.replace(" ", ""))
+        except ValueError:
+            SHEET["E"+str(ROW_COUNTER)] = int(index.replace(" ", ""))
     else:
         SHEET["E"+str(ROW_COUNTER)] = int(index.replace(" ", ""))
 
@@ -212,58 +224,72 @@ def crawl_errors(SHEET, ROW_COUNTER):
     DRIVER.get("https://www.google.com/webmasters/tools/crawl-errors?hl=pl&siteUrl="+url)
     time.sleep(2)
     print("#####Błędy indeksowania#####")
-    url_error = DRIVER.find_element_by_xpath(
-        "/html/body/div[1]/div[3]/div[2]/div/div/div/div[3]/div[1]/span/h2/div[2]").text
-    if url_error == "W ciągu ostatnich 90 dni nie wykryto błędów. Super!":
-        print("Błędy URL-i: W ciągu ostatnich 90 dni nie wykryto błędów.")
-        SHEET["G"+str(ROW_COUNTER)] = "Brak"
-        SHEET["H"+str(ROW_COUNTER)] = "Brak"
-    else:
-        page = DRIVER.page_source
-        soup = BeautifulSoup(page, "html.parser")
-        print("###Wersja na komputery:###")
-        desktop = soup.select("div[style='width: 100%; height: 100%; padding: 0px; margin: 0px;']")
-        suma_desktop = 0
-        table = []
-        for d in desktop:
-            tab = d.find_all(class_="JX0GPIC-H-b")
-            for x in tab:
-                temp = x.find(class_="gwt-Label wmt-legend-count").text
-                temp = ''.join(temp.split())
-                suma_desktop += int(temp)
-                table.append(x.find(class_="gwt-Label").text+": "+x.find(
-                    class_="gwt-Label wmt-legend-count").text)
-                print(x.find(class_="gwt-Label").text+": "+x.find(
-                    class_="gwt-Label wmt-legend-count").text)
-        desktop_list = ",".join(table)
-        print("###Wersja na smartfony:###")
-        mobile = soup.select(
-            "div[style='width: 100%; height: 100%; padding: 0px; margin: 0px; display: none;']")
-        table = []
-        suma_mobile = 0
-        for m in mobile:
-            tab = m.find_all(class_="JX0GPIC-H-b")
-            for x in tab:
-                temp = x.find(class_="gwt-Label wmt-legend-count").text
-                temp = ''.join(temp.split())
-                suma_mobile += int(temp)
-                table.append(x.find(class_="gwt-Label").text+": "+x.find(
-                    class_="gwt-Label wmt-legend-count").text)
-                print(x.find(class_="gwt-Label").text+": "+x.find(
-                    class_="gwt-Label wmt-legend-count").text)
-        mobile_list = ",".join(table)
-        suma = suma_desktop + suma_mobile
-        if ROW_COUNTER > 2:
-            if suma > int(SHEET["G"+str(ROW_COUNTER-1)].value):
-                SHEET["G"+str(ROW_COUNTER)] = suma
-                SHEET["G"+str(ROW_COUNTER)].font = Font(color=colors.RED)
-                SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
+    try:
+        url_error = DRIVER.find_element_by_xpath(
+            "/html/body/div[1]/div[3]/div[2]/div/div/div/div[3]/div[1]/span/h2/div[2]").text
+        if url_error == "W ciągu ostatnich 90 dni nie wykryto błędów. Super!":
+            print("Błędy URL-i: W ciągu ostatnich 90 dni nie wykryto błędów.")
+            SHEET["G"+str(ROW_COUNTER)] = "Brak"
+            SHEET["H"+str(ROW_COUNTER)] = "Brak"
+        else:
+            page = DRIVER.page_source
+            soup = BeautifulSoup(page, "html.parser")
+            print("###Wersja na komputery:###")
+            desktop = soup.select("div[style='width: 100%; height: 100%; padding: 0px; margin: 0px;']")
+            suma_desktop = 0
+            table = []
+            for d in desktop:
+                tab = d.find_all(class_="JX0GPIC-H-b")
+                for x in tab:
+                    temp = x.find(class_="gwt-Label wmt-legend-count").text
+                    temp = ''.join(temp.split())
+                    suma_desktop += int(temp)
+                    table.append(x.find(class_="gwt-Label").text+": "+x.find(
+                        class_="gwt-Label wmt-legend-count").text)
+                    print(x.find(class_="gwt-Label").text+": "+x.find(
+                        class_="gwt-Label wmt-legend-count").text)
+            desktop_list = ",".join(table)
+            print("###Wersja na smartfony:###")
+            mobile = soup.select(
+                "div[style='width: 100%; height: 100%; padding: 0px; margin: 0px; display: none;']")
+            table = []
+            suma_mobile = 0
+            for m in mobile:
+                tab = m.find_all(class_="JX0GPIC-H-b")
+                for x in tab:
+                    temp = x.find(class_="gwt-Label wmt-legend-count").text
+                    temp = ''.join(temp.split())
+                    suma_mobile += int(temp)
+                    table.append(x.find(class_="gwt-Label").text+": "+x.find(
+                        class_="gwt-Label wmt-legend-count").text)
+                    print(x.find(class_="gwt-Label").text+": "+x.find(
+                        class_="gwt-Label wmt-legend-count").text)
+            mobile_list = ",".join(table)
+            suma = suma_desktop + suma_mobile
+            if ROW_COUNTER > 2:
+                try:
+                    if suma > int(SHEET["G"+str(ROW_COUNTER-1)].value):
+                        SHEET["G"+str(ROW_COUNTER)] = suma
+                        SHEET["G"+str(ROW_COUNTER)].font = Font(color=colors.RED)
+                        SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
+                    else:
+                        SHEET["G"+str(ROW_COUNTER)] = suma
+                        SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
+                except ValueError:
+                    SHEET["G"+str(ROW_COUNTER)] = suma
+                    SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
+                except TypeError:
+                    SHEET["G"+str(ROW_COUNTER)] = suma
+                    SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
             else:
                 SHEET["G"+str(ROW_COUNTER)] = suma
                 SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
-        else:
-            SHEET["G"+str(ROW_COUNTER)] = suma
-            SHEET["H"+str(ROW_COUNTER)] = "Desktop: " + desktop_list + " Mobile: " + mobile_list
+    except NoSuchElementException:
+        url_error = DRIVER.find_element_by_xpath(
+            "/html/body/div[1]/div[3]/div[2]/div/div/div/span").text
+        if "Na razie brak danych" in url_error:
+            SHEET["G"+str(ROW_COUNTER)] = "Brak"
+            SHEET["H"+str(ROW_COUNTER)] = "Brak"
 
 
 def robots_testing(SHEET, ROW_COUNTER):
@@ -308,14 +334,12 @@ def gsc_scraper():
     tworzy zakladkę e excelu jeśli konto nie istnieje"""
     if NAZWA_KLIENTA in WB.sheetnames:
         SHEET = WB[NAZWA_KLIENTA]
-        ROW_COUNTER = SHEET.max_row + 1
-        SHEET["A"+str(ROW_COUNTER)] = NOW
     else:
         nowy_klient(WB, NAZWA_KLIENTA)
         SHEET = WB[NAZWA_KLIENTA]
-        ROW_COUNTER = SHEET.max_row + 1
-        SHEET["A"+str(ROW_COUNTER)] = NOW
+   
     try:
+        ROW_COUNTER = SHEET.max_row + 1
         logon()
         external_links(SHEET, ROW_COUNTER)
         manual_action(SHEET, ROW_COUNTER)
@@ -327,10 +351,13 @@ def gsc_scraper():
         security_issues(SHEET, ROW_COUNTER)
         structured_data(SHEET, ROW_COUNTER)
         hreflang(SHEET, ROW_COUNTER)
+        SHEET["A"+str(ROW_COUNTER)] = NOW
         logout()
         WB.save('Dane_GSC.xlsx')
     except NoSuchElementException:
-        print("Program nie mógł znaleźć elementu")
+        print("Program nie mógł znaleźć elementu - powiadom programistę!")
+    except PermissionError:
+        print("Zamknij plik excel i uruchom program ponownie!")
 
 NOW = datetime.datetime.now().strftime("%d-%m-%Y")
 
@@ -339,28 +366,21 @@ SHEET_KLIENCI = WB2['Klienci']
 ROW_COUNTER_KLIENCI = SHEET_KLIENCI.max_row
 WB = load_workbook('Dane_GSC.xlsx')
 
-for x in range(2, ROW_COUNTER_KLIENCI+1):
-    OPTIONS = Options()
-#    OPTIONS.add_argument("--headless")
-    DRIVER = webdriver.Firefox(
-        firefox_options=OPTIONS, executable_path=r"geckodriver.exe")
-    NAZWA_KLIENTA = SHEET_KLIENCI["A"+str(x)].value
-    url = SHEET_KLIENCI["B"+str(x)].value
-    KONTO = SHEET_KLIENCI["C"+str(x)].value
-    if KONTO == "seo":
-        login = config.SEO["login"]
-        haslo = config.SEO["haslo"]
-        gsc_scraper()
-    elif KONTO == "seo2":
-        login = config.SEO2["login"]
-        haslo = config.SEO2["haslo"]
-        gsc_scraper()
-    elif KONTO == "oferta":
-        login = config.OFERTA["login"]
-        haslo = config.OFERTA["haslo"]
-        gsc_scraper()
-    else:
-        print("Niepoprawna nazwa konta w pliku Klienci.xlxs")
+with open("config.json") as file:
+    data = json.load(file)
+    for x in range(2, ROW_COUNTER_KLIENCI+1):
+        OPTIONS = Options()
+        OPTIONS.add_argument("--headless")
+        DRIVER = webdriver.Firefox(
+            firefox_options=OPTIONS, executable_path=r"geckodriver.exe")
+        NAZWA_KLIENTA = str(SHEET_KLIENCI["A"+str(x)].value)
+        url = SHEET_KLIENCI["B"+str(x)].value
+        KONTO = SHEET_KLIENCI["C"+str(x)].value
+        for konto in data["konta"]:
+            if konto == KONTO:
+                login = data["konta"][KONTO]["login"]
+                haslo = data["konta"][KONTO]["haslo"]
+                gsc_scraper()
 
 print('Koniec')
 sys.stderr.close()
